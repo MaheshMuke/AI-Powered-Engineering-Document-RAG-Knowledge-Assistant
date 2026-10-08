@@ -1,0 +1,32 @@
+================================================================================
+AUTOSAR HIGH-LEVEL DESIGN (HLD) SPECIFICATION
+DOCUMENT ID: HLD-ADAS-ECU-001
+REVISION: 2.0.0
+CLASSIFICATION: SYNTHETIC DEMO ENGINEERING SPECIFICATION
+SYSTEM: ADVANCED DRIVER ASSISTANCE SYSTEM (ADAS) DOMAIN CONTROLLER
+================================================================================
+
+1. SYSTEM ARCHITECTURE OVERVIEW (REVISION 2 UPDATES)
+Revision 2 introduces a dedicated front-radar fusion bridge component and aligns
+all interface periodicity to eliminate buffer underruns identified in Revision 1.
+
+2. AUTOSAR SOFTWARE COMPONENTS (SWCs)
+
+2.1 SWC_CameraProcessing (Unchanged)
+- Period: 33 ms
+
+2.2 SWC_RadarFusionBridge [NEW COMPONENT]
+- Component Type: ComplexDeviceDriver
+- Execution Period: 20 ms
+- Function: Directly acquires CAN-FD frames from 77 GHz Long-Range Radar sensor (LRR).
+
+2.3 SWC_ObjectFusion [MODIFIED]
+- Component Type: Application
+- Execution Period: 20 ms (Updated from 50 ms to eliminate timing mismatch)
+- Interface IF_FusedTracks output rate: Synchronized to 20 ms.
+
+2.4 SWC_TrajectoryPlanner (Maintained)
+- Execution Period: 20 ms
+
+2.5 DEPRECATED SIGNALS
+- Signal RawUltrasonicDistance_t removed from vehicle CAN bus.

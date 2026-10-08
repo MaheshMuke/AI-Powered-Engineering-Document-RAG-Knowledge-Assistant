@@ -1,0 +1,55 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: autoai_postgres
+    environment:
+      POSTGRES_USER: autoai_user
+      POSTGRES_PASSWORD: autoai_password
+      POSTGRES_DB: automotive_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U autoai_user -d automotive_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: autoai_backend
+    environment:
+      DATABASE_URL: postgresql://autoai_user:autoai_password@postgres:5432/automotive_db
+      CHROMA_PERSIST_DIRECTORY: /workspace/chroma_data
+      SECRET_KEY: autoai-production-super-secret-key-2026
+      LLM_PROVIDER: demo
+      LLM_MODEL: llama3
+    ports:
+      - "8000:8000"
+    volumes:
+      - chroma_data:/workspace/chroma_data
+      - ./data:/workspace/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: autoai_frontend
+    environment:
+      BACKEND_API_URL: http://backend:8000/api/v1
+    ports:
+      - "8501:8501"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+  chroma_data:

@@ -1,0 +1,64 @@
+================================================================================
+AUTOSAR HIGH-LEVEL DESIGN (HLD) SPECIFICATION
+DOCUMENT ID: HLD-ADAS-ECU-001
+REVISION: 1.0.0
+CLASSIFICATION: SYNTHETIC DEMO ENGINEERING SPECIFICATION
+SYSTEM: ADVANCED DRIVER ASSISTANCE SYSTEM (ADAS) DOMAIN CONTROLLER
+================================================================================
+
+1. SYSTEM ARCHITECTURE OVERVIEW
+The Demo ADAS ECU acts as the central domain controller integrating camera video perception,
+radar detection fusion, and trajectory generation for Level 2+ automated driving features,
+specifically Autonomous Emergency Braking (AEB) and Lane Centering Assist (LCA).
+
+2. AUTOSAR SOFTWARE COMPONENTS (SWCs)
+The application software layer consists of the following AUTOSAR Software Components:
+
+2.1 SWC_CameraProcessing
+- Component Type: SensorActuator
+- Execution Period: 33 ms (30 FPS camera sync)
+- Function: Acquires raw MIPI-CSI video frames from the front-facing mono-camera. Performs
+  optical flow edge detection, lane marking localization, and initial bounding box extraction.
+- Output Port: P_RawObjects
+  * Interface: IF_RawObjects (Client-Server / Sender-Receiver)
+  * Protocol: SOME/IP over Automotive Ethernet (100BASE-T1)
+  * Data Type: RawObjectList_t (Maximum 32 detected bounding boxes)
+
+2.2 SWC_ObjectFusion
+- Component Type: Application
+- Execution Period: 50 ms (20 Hz periodic runnable)
+- Function: Consumes raw objects from SWC_CameraProcessing and integrates radar target returns
+  to compute unified kinematic state vectors (longitudinal distance, lateral offset, velocity).
+- Input Port: R_RawObjects (Interface: IF_RawObjects)
+- Output Port: P_FusedTrack
+  * Interface: IF_FusedTracks (Sender-Receiver)
+  * Transmission Medium: CAN-FD Bus (ID: 0x120, Baud: 2 Mbps)
+  * Signal: TargetTrajectory_t
+  * NOTE ON TIMING: Transmission periodicity is configured to 50 ms.
+
+2.3 SWC_TrajectoryPlanner
+- Component Type: Application
+- Execution Period: 20 ms (50 Hz periodic runnable)
+- Function: Computes vehicle steering angle requests and longitudinal deceleration trajectories
+  to prevent collision with obstacles identified by sensor fusion.
+- Input Port: R_FusedTrack
+  * Interface: IF_FusedTracks
+  * EXPECTATION: The trajectory planning algorithm requires input data at 20 ms intervals
+    to ensure closed-loop control stability of the vehicle dynamics model.
+  * WARNING: Potential interface mismatch exists with SWC_ObjectFusion transmitting at 50 ms.
+- Output Port: P_BrakeCommand
+  * Interface: IF_BrakeCommand
+  * Protocol: FlexRay Bus A (Slot ID: 45)
+  * Signal: DecelerationRequest_t
+
+2.4 SWC_BrakeActuatorDriver
+- Component Type: ComplexDeviceDriver (CDD)
+- Function: Interfaces directly with the Electronic Stability Program (ESP) hydraulic modulation
+  valves via dedicated SPI and FlexRay communication channels.
+
+3. FUNCTIONAL FLOWS & DEPENDENCIES
+[Camera Sensor] -> SWC_CameraProcessing -> (IF_RawObjects) -> SWC_ObjectFusion -> (IF_FusedTracks) -> SWC_TrajectoryPlanner -> (IF_BrakeCommand) -> SWC_BrakeActuatorDriver -> [Brake Calipers]
+
+4. SAFETY ALLOCATIONS (PRELIMINARY)
+- SWC_TrajectoryPlanner is designated as ASIL D due to direct authority over vehicle braking actuators.
+- SWC_CameraProcessing is designated as ASIL B(D) decomposing with radar perception paths.

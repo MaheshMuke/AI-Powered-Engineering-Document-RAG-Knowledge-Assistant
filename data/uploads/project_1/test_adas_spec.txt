@@ -1,0 +1,1 @@
+ADAS High Level Design. SWC_CameraProcessing has an execution period of 33 ms for 30 FPS synchronization.
