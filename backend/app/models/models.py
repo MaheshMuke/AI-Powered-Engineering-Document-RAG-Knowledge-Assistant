@@ -122,3 +122,15 @@ class AuditLog(Base):
     source_references = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
+
+class HLDReport(Base):
+    __tablename__ = "hld_reports"
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False, index=True)
+    report_type = Column(String(32), nullable=False)
+    title = Column(String(256), nullable=False)
+    document_references = Column(JSON, nullable=False)
+    payload = Column(JSON, nullable=False)
+    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)

@@ -58,6 +58,13 @@ Lexical + Semantic     ChromaDB Vector Store     LLM Synthesis
 - **Prompt Injection Defense:** Filters common jailbreaks and instruction-override patterns prior to vector query execution.
 - **Audit Logging:** Every query, retrieved chunk, and model response is permanently recorded in the database.
 
+### 🧩 AUTOSAR HLD Analysis
+- Extracts component inventories, ports, interfaces, data types, protocols, execution/transmission periods, and explicit dependency flows from indexed document revisions.
+- Flags potential interface, timing, and data-type conflicts with supporting citations, severity rationale, and an engineering-review status.
+- Compares two selected, indexed document revisions and exports analysis/comparison reports as JSON or CSV.
+- Analysis is advisory and does not approve architectures or establish ISO compliance or safety certification. Missing source detail is labeled as insufficient evidence.
+- Scanned PDF pages use OCR when needed. OCR requires the Python dependencies in `backend/requirements.txt` and the Tesseract OCR application installed and available on `PATH`.
+
 ---
 
 ## 3. Quick Start & Execution
@@ -123,3 +130,4 @@ Tests cover:
 - Document upload, text parsing, and ChromaDB vector indexing
 - Hybrid RAG retrieval, citations, and confidence scoring
 - Prompt injection protection and negative missing-evidence behavior
+- HLD extraction, explicit dependency mapping, mismatch detection, revision comparison, citations, missing evidence, and structured report export

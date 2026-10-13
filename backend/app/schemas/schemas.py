@@ -108,3 +108,19 @@ class AuditLogResponse(BaseModel):
     class Config:
         from_attributes = True
 
+
+class HLDAnalysisRequest(BaseModel):
+    document_id: int = Field(gt=0)
+    version_number: Optional[int] = Field(default=None, gt=0)
+
+
+class HLDRevisionComparisonRequest(BaseModel):
+    before_document_id: int = Field(gt=0)
+    before_version_number: int = Field(gt=0)
+    after_document_id: int = Field(gt=0)
+    after_version_number: int = Field(gt=0)
+
+
+class HLDFindingReviewRequest(BaseModel):
+    reviewed: bool = True
+    review_note: Optional[str] = Field(default=None, max_length=2000)

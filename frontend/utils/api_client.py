@@ -38,6 +38,17 @@ class APIClient:
         resp.raise_for_status()
         return resp.json()
 
+    def get_document_versions(
+        self, token: str, project_id: int, document_id: int
+    ) -> List[Dict[str, Any]]:
+        url = f"{self.base_url}/documents/{document_id}/versions"
+        resp = requests.get(
+            url, params={"project_id": project_id},
+            headers=self._headers(token), timeout=15
+        )
+        resp.raise_for_status()
+        return resp.json()
+
     def upload_document(self, token: str, project_id: int, file_name: str, file_bytes: bytes) -> Dict[str, Any]:
         url = f"{self.base_url}/documents/upload"
         files = {"file": (file_name, file_bytes)}
@@ -46,9 +57,20 @@ class APIClient:
         resp.raise_for_status()
         return resp.json()
 
-    def index_document(self, token: str, document_id: int) -> Dict[str, Any]:
+    def index_document(
+        self,
+        token: str,
+        document_id: int,
+        version_number: Optional[int] = None,
+        project_id: Optional[int] = None,
+    ) -> Dict[str, Any]:
         url = f"{self.base_url}/documents/{document_id}/index"
-        resp = requests.post(url, headers=self._headers(token), timeout=60)
+        params = {
+            key: value for key, value in {
+                "version_number": version_number, "project_id": project_id
+            }.items() if value is not None
+        }
+        resp = requests.post(url, params=params, headers=self._headers(token), timeout=60)
         resp.raise_for_status()
         return resp.json()
 
@@ -64,5 +86,70 @@ class APIClient:
         resp = requests.get(url, headers=self._headers(token), timeout=10)
         resp.raise_for_status()
         return resp.json()
+
+    def analyze_hld(
+        self, token: str, project_id: int, document_id: int, version_number: Optional[int] = None
+    ) -> Dict[str, Any]:
+        url = f"{self.base_url}/hld/{project_id}/analyze"
+        payload = {"document_id": document_id, "version_number": version_number}
+        resp = requests.post(url, json=payload, headers=self._headers(token), timeout=60)
+        resp.raise_for_status()
+        return resp.json()
+
+    def compare_hld_revisions(
+        self,
+        token: str,
+        project_id: int,
+        before_document_id: int,
+        before_version_number: int,
+        after_document_id: int,
+        after_version_number: int,
+    ) -> Dict[str, Any]:
+        url = f"{self.base_url}/hld/{project_id}/compare"
+        payload = {
+            "before_document_id": before_document_id,
+            "before_version_number": before_version_number,
+            "after_document_id": after_document_id,
+            "after_version_number": after_version_number,
+        }
+        resp = requests.post(url, json=payload, headers=self._headers(token), timeout=60)
+        resp.raise_for_status()
+        return resp.json()
+
+    def get_hld_reports(self, token: str, project_id: int) -> List[Dict[str, Any]]:
+        url = f"{self.base_url}/hld/{project_id}/reports"
+        resp = requests.get(url, headers=self._headers(token), timeout=15)
+        resp.raise_for_status()
+        return resp.json()
+
+    def get_hld_report(self, token: str, project_id: int, report_id: int) -> Dict[str, Any]:
+        url = f"{self.base_url}/hld/{project_id}/reports/{report_id}"
+        resp = requests.get(url, headers=self._headers(token), timeout=15)
+        resp.raise_for_status()
+        return resp.json()
+
+    def review_hld_finding(
+        self, token: str, project_id: int, report_id: int, finding_id: str, review_note: str = ""
+    ) -> Dict[str, Any]:
+        url = f"{self.base_url}/hld/{project_id}/reports/{report_id}/findings/{finding_id}"
+        resp = requests.patch(
+            url,
+            json={"reviewed": True, "review_note": review_note or None},
+            headers=self._headers(token),
+            timeout=15,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    def export_hld_report(self, token: str, project_id: int, report_id: int, output_format: str) -> bytes:
+        url = f"{self.base_url}/hld/{project_id}/reports/{report_id}/export"
+        resp = requests.get(
+            url,
+            params={"format": output_format},
+            headers=self._headers(token),
+            timeout=30,
+        )
+        resp.raise_for_status()
+        return resp.content
 
 api_client = APIClient()

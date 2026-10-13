@@ -2,10 +2,59 @@ import streamlit as st
 import pandas as pd
 import json
 import time
+from html import escape
 from frontend.components.ui import (
     apply_custom_css, render_safety_banner, render_status_badge
 )
 from frontend.utils.api_client import api_client
+
+
+def _render_dependency_graph(nodes, edges):
+    """Render the extracted directed flow without a system Graphviz dependency."""
+    ordered_nodes = list(nodes)
+    if not ordered_nodes:
+        st.info("Insufficient evidence: the source does not document component nodes.")
+        return
+    width = 660
+    row_height = 86
+    height = max(120, 48 + row_height * len(ordered_nodes))
+    y_positions = {node: 34 + row_height * index for index, node in enumerate(ordered_nodes)}
+    svg_edges = []
+    for edge in edges:
+        source = edge["source"]
+        target = edge["target"]
+        if source not in y_positions or target not in y_positions:
+            continue
+        source_y = y_positions[source] + 22
+        target_y = y_positions[target] - 22
+        svg_edges.append(
+            f'<path d="M 330 {source_y} L 330 {target_y}" '
+            'stroke="#6b8499" stroke-width="2" fill="none" marker-end="url(#arrow)"/>'
+        )
+        if edge["interface_name"] != "Insufficient evidence":
+            svg_edges.append(
+                f'<text x="342" y="{(source_y + target_y) / 2}" '
+                'fill="#afc2d2" font-size="12">'
+                f'{escape(edge["interface_name"])}</text>'
+            )
+    svg_nodes = []
+    for node in ordered_nodes:
+        y = y_positions[node]
+        svg_nodes.append(
+            f'<rect x="170" y="{y - 21}" width="320" height="44" rx="8" '
+            'fill="#1f3446" stroke="#54748e"/>'
+            f'<text x="330" y="{y + 5}" text-anchor="middle" '
+            'fill="#f2f6fa" font-size="14">'
+            f'{escape(node)}</text>'
+        )
+    svg = (
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="{height}" '
+        f'viewBox="0 0 {width} {height}" role="img" aria-label="Documented HLD dependencies">'
+        '<defs><marker id="arrow" markerWidth="9" markerHeight="9" refX="6" refY="3" '
+        'orient="auto"><path d="M0,0 L0,6 L7,3 z" fill="#6b8499"/></marker></defs>'
+        + "".join(svg_edges) + "".join(svg_nodes) + "</svg>"
+    )
+    st.components.v1.html(svg, height=height, scrolling=False)
 
 st.set_page_config(
     page_title="Engineering Document RAG Knowledge Assistant",
@@ -129,10 +178,13 @@ with st.sidebar:
     nav = st.radio(
         "Navigation",
         [
-            "🔍 RAG Knowledge Assistant",
-            "📁 Projects & Documents",
-            "📊 Dashboard",
-            "📜 Audit Logs"
+            "Dashboard",
+            "Projects & Documents",
+            "RAG Knowledge Assistant",
+            "HLD Analysis",
+            "Revision Comparison",
+            "Findings & Reports",
+            "Audit Logs",
         ],
         label_visibility="collapsed"
     )
@@ -160,7 +212,7 @@ render_safety_banner()
 # ==========================================
 # MODULE: RAG ASSISTANT (PRIMARY FOCUS)
 # ==========================================
-if nav == "🔍 RAG Knowledge Assistant":
+if nav == "RAG Knowledge Assistant":
     st.subheader("Engineering Document Q&A & Evidence Synthesis")
     st.write("Query indexed specifications with deterministic citation traceability, grounded evidence synthesis, and strict missing-information bounds.")
 
@@ -172,7 +224,7 @@ if nav == "🔍 RAG Knowledge Assistant":
             doc_tags = ", ".join([f"**{d['filename']}** (v{d['current_version']})" for d in indexed_docs])
             st.info(f"📚 **Indexed Knowledge Base ({len(indexed_docs)} documents):** {doc_tags}")
         else:
-            st.warning("⚠️ No indexed documents in this project yet. Go to **'📁 Projects & Documents'** to upload and index an engineering specification.")
+            st.warning("⚠️ No indexed documents in this project yet. Go to **Projects & Documents** to upload and index an engineering specification.")
     except Exception:
         pass
 
@@ -227,7 +279,7 @@ if nav == "🔍 RAG Knowledge Assistant":
 # ==========================================
 # MODULE: PROJECTS & DOCUMENTS
 # ==========================================
-elif nav == "📁 Projects & Documents":
+elif nav == "Projects & Documents":
     st.subheader("Document Ingestion & Knowledge Base Management")
     st.write("Upload engineering specifications (PDF, TXT, DOCX, C/H) to parse, chunk, embed, and store in project-isolated ChromaDB.")
 
@@ -270,8 +322,10 @@ elif nav == "📁 Projects & Documents":
                         if not d['is_indexed']:
                             if st.button(f"Index {d['filename']}", key=f"idx_{d['id']}", type="primary"):
                                 with st.spinner("Extracting text, chunking, and embedding into ChromaDB..."):
-                                    idx_res = api_client.index_document(token, d['id'])
-                                    st.success(f"Indexed {idx_res['chunks_indexed']} chunks across {idx_res['total_pages']} pages into ChromaDB!")
+                                    idx_res = api_client.index_document(
+                                        token, d['id'], project_id=current_proj["id"]
+                                    )
+                                    st.success(f"Indexed revision v{idx_res['version_number']}: {idx_res['chunks_indexed']} chunks across {idx_res['total_pages']} pages into ChromaDB!")
                                     st.rerun()
             else:
                 st.info("No documents uploaded yet. Upload a specification to begin.")
@@ -281,7 +335,7 @@ elif nav == "📁 Projects & Documents":
 # ==========================================
 # MODULE: DASHBOARD
 # ==========================================
-elif nav == "📊 Dashboard":
+elif nav == "Dashboard":
     st.subheader("Knowledge Base Analytics & RAG Activity")
     try:
         docs = api_client.get_documents(token, current_proj["id"])
@@ -334,7 +388,310 @@ elif nav == "📊 Dashboard":
 # ==========================================
 # MODULE: AUDIT LOGS
 # ==========================================
-elif nav == "📜 Audit Logs":
+elif nav == "HLD Analysis":
+    st.subheader("AUTOSAR HLD Component and Interface Analysis")
+    st.write("Extracts only documented architecture facts from indexed project revisions. All results are advisory and require engineering review.")
+    docs = api_client.get_documents(token, current_proj["id"])
+    if not docs:
+        st.info("Upload an HLD in Projects & Documents before analysis.")
+    else:
+        selected_doc = st.selectbox(
+            "HLD document",
+            docs,
+            format_func=lambda item: item["filename"],
+            key="hld_analysis_document",
+        )
+        versions = api_client.get_document_versions(
+            token, current_proj["id"], selected_doc["id"]
+        )
+        selected_version = None
+        if not versions:
+            st.warning("This document has no stored revision metadata. Re-upload the document to enable revision analysis.")
+        else:
+            version_numbers = [item["version_number"] for item in versions]
+            selected_version = st.selectbox(
+                "Revision",
+                version_numbers,
+                index=version_numbers.index(selected_doc["current_version"])
+                if selected_doc["current_version"] in version_numbers else len(version_numbers) - 1,
+                format_func=lambda version: (
+                    f"v{version} ({'indexed' if next(v for v in versions if v['version_number'] == version)['is_indexed'] else 'not indexed'})"
+                ),
+                key="hld_analysis_version",
+            )
+            selected_revision = next(
+                item for item in versions if item["version_number"] == selected_version
+            )
+            if not selected_revision["is_indexed"]:
+                st.warning("Index this exact revision before HLD analysis.")
+                if st.button("Index selected revision", key="index_analysis_revision"):
+                    try:
+                        api_client.index_document(
+                            token, selected_doc["id"], selected_version,
+                            project_id=current_proj["id"],
+                        )
+                        st.success(f"Indexed revision v{selected_version}.")
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(f"Revision indexing failed: {exc}")
+            if st.button(
+                "Analyze HLD", type="primary",
+                disabled=not selected_revision["is_indexed"],
+            ):
+                with st.spinner("Extracting documented components, interfaces, flows, and potential inconsistencies..."):
+                    try:
+                        result = api_client.analyze_hld(
+                            token, current_proj["id"], selected_doc["id"], selected_version
+                        )
+                        st.session_state["active_hld_report_id"] = result["id"]
+                        st.session_state["active_hld_report"] = result["payload"]
+                        st.session_state["active_hld_report_type"] = "analysis"
+                        st.session_state["active_hld_report_project_id"] = current_proj["id"]
+                        st.success("Evidence-grounded analysis report saved.")
+                    except Exception as exc:
+                        st.error(f"HLD analysis failed: {exc}")
+        payload = st.session_state.get("active_hld_report")
+        if (
+            st.session_state.get("active_hld_report_type") != "analysis"
+            or st.session_state.get("active_hld_report_project_id") != current_proj["id"]
+            or not payload
+            or selected_version is None
+            or payload.get("source_revision", {}).get("document_id") != selected_doc["id"]
+            or payload.get("source_revision", {}).get("version_number") != selected_version
+        ):
+            payload = None
+        if payload:
+            st.markdown("#### Component Inventory")
+            st.dataframe(pd.DataFrame([{
+                "Component": item["component_name"],
+                "Type": item["component_type"],
+                "Functions": "; ".join(item["functions"]),
+                "Execution Period": item["execution_period"],
+                "Source Citations": "; ".join(
+                    f"{cite['document_name']} v{cite['version']} p.{cite['page']}"
+                    for cite in item["citations"]
+                ),
+            } for item in payload["components"]]), use_container_width=True)
+            st.markdown("#### Ports")
+            port_rows = [
+                {key: value for key, value in port.items() if key != "citations"}
+                for component in payload["components"] for port in component["ports"]
+            ]
+            if port_rows:
+                st.dataframe(pd.DataFrame(port_rows), use_container_width=True)
+            else:
+                st.info("Insufficient evidence: no input/output ports were extracted.")
+            st.markdown("#### Interface and Communication Matrix")
+            st.dataframe(pd.DataFrame([{
+                key: value for key, value in row.items() if key != "citations"
+            } for row in payload["interface_matrix"]]), use_container_width=True)
+            st.markdown("#### Documented Dependencies")
+            edges = payload["dependencies"]["edges"]
+            if edges:
+                _render_dependency_graph(payload["dependencies"]["nodes"], edges)
+                st.dataframe(pd.DataFrame([{
+                    "Source": edge["source"], "Target": edge["target"],
+                    "Interface": edge["interface_name"],
+                    "Evidence": edge["evidence_type"],
+                } for edge in edges]), use_container_width=True)
+            else:
+                st.info("Insufficient evidence: no dependency connections were explicitly documented.")
+            st.markdown("#### Potential Inconsistencies")
+            st.dataframe(pd.DataFrame([{
+                "Severity": finding["severity"],
+                "Classification": finding["classification"],
+                "Finding": finding["title"],
+                "Evidence": finding["evidence"],
+                "Severity Rationale": finding["severity_rationale"],
+                "Review Status": finding["engineering_review_status"],
+                "Citations": "; ".join(
+                    f"{cite['document_name']} v{cite['version']} p.{cite['page']}"
+                    for cite in finding["citations"]
+                ),
+            } for finding in payload["inconsistencies"]]), use_container_width=True)
+            st.caption(payload["disclaimer"])
+
+elif nav == "Revision Comparison":
+    st.subheader("Compare Actual Indexed HLD Revisions")
+    st.write("Choose two uploaded document revisions. Any revision not yet indexed can be indexed directly here; changes are never generated without source content.")
+    docs = api_client.get_documents(token, current_proj["id"])
+    if not docs:
+        st.info("Upload HLD revisions in Projects & Documents before comparison.")
+    else:
+        before_doc = st.selectbox(
+            "Earlier revision document", docs,
+            format_func=lambda item: item["filename"], key="before_hld_doc",
+        )
+        after_doc = st.selectbox(
+            "Later revision document", docs,
+            format_func=lambda item: item["filename"], key="after_hld_doc",
+        )
+        before_versions = api_client.get_document_versions(
+            token, current_proj["id"], before_doc["id"]
+        )
+        after_versions = api_client.get_document_versions(
+            token, current_proj["id"], after_doc["id"]
+        )
+        if not before_versions or not after_versions:
+            st.warning("One or both documents have no stored revision metadata.")
+        else:
+            before_numbers = [item["version_number"] for item in before_versions]
+            after_numbers = [item["version_number"] for item in after_versions]
+            before_version = st.selectbox(
+                "Earlier revision", before_numbers,
+                format_func=lambda version: (
+                    f"v{version} ({'indexed' if next(v for v in before_versions if v['version_number'] == version)['is_indexed'] else 'not indexed'})"
+                ),
+                key="before_hld_version",
+            )
+            after_version = st.selectbox(
+                "Later revision", after_numbers,
+                format_func=lambda version: (
+                    f"v{version} ({'indexed' if next(v for v in after_versions if v['version_number'] == version)['is_indexed'] else 'not indexed'})"
+                ),
+                key="after_hld_version",
+            )
+            before_ready = next(v for v in before_versions if v["version_number"] == before_version)["is_indexed"]
+            after_ready = next(v for v in after_versions if v["version_number"] == after_version)["is_indexed"]
+            if not before_ready and st.button("Index earlier revision", key="index_before_revision"):
+                try:
+                    api_client.index_document(
+                        token, before_doc["id"], before_version,
+                        project_id=current_proj["id"],
+                    )
+                    st.success(f"Indexed earlier revision v{before_version}.")
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Revision indexing failed: {exc}")
+            if not after_ready and st.button("Index later revision", key="index_after_revision"):
+                try:
+                    api_client.index_document(
+                        token, after_doc["id"], after_version,
+                        project_id=current_proj["id"],
+                    )
+                    st.success(f"Indexed later revision v{after_version}.")
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Revision indexing failed: {exc}")
+            if st.button(
+                "Compare Revisions", type="primary",
+                disabled=not (before_ready and after_ready),
+            ):
+                try:
+                    result = api_client.compare_hld_revisions(
+                        token, current_proj["id"], before_doc["id"], before_version,
+                        after_doc["id"], after_version,
+                    )
+                    st.session_state["active_hld_report_id"] = result["id"]
+                    st.session_state["active_hld_report"] = result["payload"]
+                    st.session_state["active_hld_report_type"] = "revision_comparison"
+                    st.session_state["active_hld_report_project_id"] = current_proj["id"]
+                    st.success(f"Comparison saved with {len(result['payload']['changes'])} documented changes.")
+                except Exception as exc:
+                    st.error(f"Revision comparison failed: {exc}")
+            payload = st.session_state.get("active_hld_report")
+            if (
+                payload
+                and st.session_state.get("active_hld_report_type") == "revision_comparison"
+                and st.session_state.get("active_hld_report_project_id") == current_proj["id"]
+                and payload.get("before_revision", {}).get("document_id") == before_doc["id"]
+                and payload.get("before_revision", {}).get("version_number") == before_version
+                and payload.get("after_revision", {}).get("document_id") == after_doc["id"]
+                and payload.get("after_revision", {}).get("version_number") == after_version
+            ):
+                st.dataframe(pd.DataFrame([{
+                "Category": change["category"],
+                "Change": change["change_type"],
+                "Entity": change["entity"],
+                "Before": json.dumps(change["before"], ensure_ascii=False),
+                "After": json.dumps(change["after"], ensure_ascii=False),
+                "Citations": "; ".join(
+                    f"{cite['document_name']} v{cite['version']} p.{cite['page']}"
+                    for cite in change["citations"]
+                ),
+                "Review Status": change["engineering_review_status"],
+                } for change in payload["changes"]]), use_container_width=True)
+                st.caption(payload["disclaimer"])
+
+elif nav == "Findings & Reports":
+    st.subheader("HLD Findings and Structured Reports")
+    reports = api_client.get_hld_reports(token, current_proj["id"])
+    if not reports:
+        st.info("Run an HLD analysis or revision comparison to create a report.")
+    else:
+        chosen_report = st.selectbox(
+            "Saved report", reports,
+            format_func=lambda item: f"#{item['id']} {item['title']}",
+            key="saved_hld_report",
+        )
+        report = api_client.get_hld_report(token, current_proj["id"], chosen_report["id"])
+        payload = report["payload"]
+        findings = payload.get("inconsistencies", [])
+        changes = payload.get("changes", [])
+        if findings:
+            st.markdown("#### Inconsistency Findings")
+            st.dataframe(pd.DataFrame([{
+                "Severity": item["severity"], "Type": item["classification"],
+                "Finding": item["title"], "Evidence": item["evidence"],
+                "Rationale": item["severity_rationale"],
+                "Review Status": item["engineering_review_status"],
+                "Citations": "; ".join(
+                    f"{cite['document_name']} v{cite['version']} p.{cite['page']}"
+                    for cite in item["citations"]
+                ),
+            } for item in findings]), use_container_width=True)
+        if changes:
+            st.markdown("#### Revision Changes")
+            st.dataframe(pd.DataFrame([{
+                "Category": item["category"], "Change": item["change_type"],
+                "Entity": item["entity"],
+                "Before": json.dumps(item["before"], ensure_ascii=False),
+                "After": json.dumps(item["after"], ensure_ascii=False),
+                "Review Status": item["engineering_review_status"],
+                "Citations": "; ".join(
+                    f"{cite['document_name']} v{cite['version']} p.{cite['page']}"
+                    for cite in item["citations"]
+                ),
+            } for item in changes]), use_container_width=True)
+        reviewable = [
+            item for item in findings + changes
+            if item["engineering_review_status"] != "REVIEWED"
+        ]
+        if reviewable:
+            selected_item = st.selectbox(
+                "Finding or change to mark reviewed", reviewable,
+                format_func=lambda item: item.get("title", item["entity"]),
+                key="finding_to_review",
+            )
+            review_note = st.text_input("Engineering review note (optional)")
+            if st.button("Mark as reviewed"):
+                item_id = selected_item.get("finding_id", selected_item.get("change_id"))
+                try:
+                    api_client.review_hld_finding(
+                        token, current_proj["id"], report["id"], item_id, review_note
+                    )
+                    st.success("Review status recorded; this does not constitute architecture approval.")
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Could not update review status: {exc}")
+        st.markdown("#### Export")
+        export_col1, export_col2 = st.columns(2)
+        for column, output_format in ((export_col1, "json"), (export_col2, "csv")):
+            try:
+                report_bytes = api_client.export_hld_report(
+                    token, current_proj["id"], report["id"], output_format
+                )
+                column.download_button(
+                    f"Download {output_format.upper()}",
+                    report_bytes,
+                    file_name=f"hld-report-{report['id']}.{output_format}",
+                    mime="application/json" if output_format == "json" else "text/csv",
+                )
+            except Exception as exc:
+                st.error(f"Report export failed: {exc}")
+        st.caption(payload.get("disclaimer", "Advisory results; engineering review is required."))
+
+elif nav == "Audit Logs":
     st.subheader("Engineering Audit Trail & Compliance Log")
     st.write("Tamper-evident log of every document upload, indexing event, and RAG knowledge query.")
 

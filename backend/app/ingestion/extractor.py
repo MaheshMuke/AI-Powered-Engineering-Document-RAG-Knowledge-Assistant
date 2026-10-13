@@ -9,31 +9,43 @@ from typing import List, Dict, Any
 
 def extract_text_from_pdf(file_path: str) -> List[Dict[str, Any]]:
     """
-    Extracts text per page from a PDF file using pypdf.
+    Extracts text per page from a PDF file using pypdf and OCR for image-only pages.
     Returns list of dicts: [{"page": 1, "text": "...", "headings": [...]}]
     """
     pages_data = []
     try:
         from pypdf import PdfReader
-        reader = PdfReader(file_path)
-        for page_idx, page in enumerate(reader.pages, start=1):
-            text = page.extract_text() or ""
-            # Simple heading heuristic: lines ending with colon or capital short lines
-            headings = [
-                line.strip() for line in text.splitlines()
-                if line.strip().isupper() and len(line.strip()) < 80
-            ]
-            pages_data.append({
-                "page": page_idx,
-                "text": text,
-                "headings": headings
-            })
     except Exception as e:
-        pages_data.append({
-            "page": 1,
-            "text": f"Error parsing PDF: {str(e)}",
-            "headings": []
-        })
+        raise RuntimeError(f"PDF parsing requires pypdf: {e}") from e
+
+    reader = PdfReader(file_path)
+    ocr_document = None
+    for page_idx, page in enumerate(reader.pages, start=1):
+        text = page.extract_text() or ""
+        if not text.strip():
+            try:
+                import pypdfium2
+                import pytesseract
+            except ImportError as e:
+                raise RuntimeError(
+                    "This PDF contains scanned pages. Install pypdfium2 and pytesseract, "
+                    "and install the Tesseract OCR application to extract them."
+                ) from e
+            try:
+                if ocr_document is None:
+                    ocr_document = pypdfium2.PdfDocument(file_path)
+                image = ocr_document[page_idx - 1].render(scale=2).to_pil()
+                text = pytesseract.image_to_string(image) or ""
+            except Exception as e:
+                raise RuntimeError(
+                    f"OCR failed on scanned PDF page {page_idx}; verify the Tesseract installation: {e}"
+                ) from e
+
+        headings = [
+            line.strip() for line in text.splitlines()
+            if line.strip().isupper() and len(line.strip()) < 80
+        ]
+        pages_data.append({"page": page_idx, "text": text, "headings": headings})
     return pages_data
 
 def extract_text_from_docx(file_path: str) -> List[Dict[str, Any]]:

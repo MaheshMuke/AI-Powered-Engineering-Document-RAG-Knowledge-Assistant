@@ -12,6 +12,7 @@ from backend.app.api.projects import router as projects_router
 from backend.app.api.documents import router as documents_router
 from backend.app.api.rag import router as rag_router
 from backend.app.api.audit import router as audit_router
+from backend.app.api.hld import router as hld_router
 
 # Initialize DB Tables
 Base.metadata.create_all(bind=engine)
@@ -76,6 +77,7 @@ app.include_router(projects_router, prefix=api_prefix)
 app.include_router(documents_router, prefix=api_prefix)
 app.include_router(rag_router, prefix=api_prefix)
 app.include_router(audit_router, prefix=api_prefix)
+app.include_router(hld_router, prefix=api_prefix)
 
 @app.get("/")
 def root():
